@@ -5,12 +5,20 @@ import { createTranslationProvider, TranslationConfig } from './TranslationProvi
 const CONFIG_NAMESPACE = 'TransPreview';
 const PREVIEW_VISIBLE_CONTEXT_KEY = 'TransPreview.previewVisible';
 
+interface CachedTranslation {
+  translatedContent: string;
+  sourceVersion: number;
+  targetLanguage: string;
+  updatedAt: number;
+}
+
 export class PreviewPanel {
   public static readonly viewType = 'PTvo.previewPanel';
   private readonly _panel: vscode.WebviewPanel;
   private _disposables: vscode.Disposable[] = [];
   private _currentDocument?: vscode.TextDocument;
   private _disposeCallback?: () => void;
+  private _translationCache = new Map<string, CachedTranslation>();
 
   constructor(extensionUri: vscode.Uri) {
     // Create and show panel
@@ -120,7 +128,8 @@ export class PreviewPanel {
   }
 
   public async translate() {
-    if (!this._currentDocument) {
+    const sourceDocument = this._currentDocument;
+    if (!sourceDocument) {
       this._panel.webview.postMessage({
         command: 'translateComplete'
       });
@@ -141,7 +150,10 @@ export class PreviewPanel {
       return;
     }
 
-    const content = this._currentDocument.getText();
+    const documentCacheKey = this._getDocumentCacheKey(sourceDocument);
+    const sourceVersion = sourceDocument.version;
+    const targetLanguage = this._detectTargetLanguage(sourceDocument.languageId);
+    const content = sourceDocument.getText();
 
     // Show progress indicator
     await vscode.window.withProgress(
@@ -157,14 +169,20 @@ export class PreviewPanel {
             apiKey,
             content,
             baseUrl,
-            model
+            model,
+            targetLanguage
           );
 
-          this._panel.webview.postMessage({
-            command: 'updateContent',
-            content: translatedText,
-            isTranslated: true
+          this._translationCache.set(documentCacheKey, {
+            translatedContent: translatedText,
+            sourceVersion,
+            targetLanguage,
+            updatedAt: Date.now()
           });
+
+          if (this._currentDocument && this._getDocumentCacheKey(this._currentDocument) === documentCacheKey) {
+            this._sendContentToWebview(this._currentDocument);
+          }
         } catch (error) {
           vscode.window.showErrorMessage(
             `Translation failed: ${error instanceof Error ? error.message : 'Unknown error'}`
@@ -183,7 +201,8 @@ export class PreviewPanel {
     apiKey: string,
     content: string,
     baseUrl?: string,
-    model?: string
+    model?: string,
+    targetLanguage = 'zh-CN'
   ): Promise<string> {
     const config: TranslationConfig = {
       apiKey: apiKey,
@@ -192,11 +211,6 @@ export class PreviewPanel {
     };
 
     const provider = createTranslationProvider(translator, config);
-
-    // Detect target language based on current document
-    const currentLanguage = this._currentDocument?.languageId || '';
-    const targetLanguage = this._detectTargetLanguage(currentLanguage);
-
     return await provider.translate(content, targetLanguage);
   }
 
@@ -221,7 +235,8 @@ export class PreviewPanel {
   }
 
   private _sendContentToWebview(document: vscode.TextDocument) {
-    const content = document.getText();
+    const cached = this._getCachedTranslation(document);
+    const content = cached ? cached.entry.translatedContent : document.getText();
     const fileName = path.basename(document.fileName) || 'Untitled';
 
     this._panel.webview.postMessage({
@@ -229,8 +244,26 @@ export class PreviewPanel {
       content: content,
       fileName: fileName,
       language: document.languageId,
-      isTranslated: false
+      isTranslated: !!cached,
+      isStale: cached?.isStale ?? false
     });
+  }
+
+  private _getDocumentCacheKey(document: vscode.TextDocument): string {
+    return document.uri.toString();
+  }
+
+  private _getCachedTranslation(document: vscode.TextDocument): { entry: CachedTranslation; isStale: boolean } | undefined {
+    const cacheKey = this._getDocumentCacheKey(document);
+    const entry = this._translationCache.get(cacheKey);
+    if (!entry) {
+      return undefined;
+    }
+
+    return {
+      entry,
+      isStale: entry.sourceVersion !== document.version
+    };
   }
 
   private _updateContextKey(visible: boolean) {
@@ -401,6 +434,29 @@ export class PreviewPanel {
     .translated-indicator.show {
       display: inline-block;
     }
+
+    .stale-indicator {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 3px;
+      background-color: var(--vscode-editorWarning-foreground, #d29922);
+      color: var(--vscode-editor-background, #1e1e1e);
+      display: none;
+    }
+
+    .stale-indicator.show {
+      display: inline-block;
+    }
+
+    button.secondary {
+      background-color: var(--vscode-button-secondaryBackground);
+      color: var(--vscode-button-secondaryForeground);
+      display: none;
+    }
+
+    button.secondary:hover {
+      background-color: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-secondaryBackground));
+    }
   </style>
 </head>
 <body>
@@ -410,6 +466,7 @@ export class PreviewPanel {
         <span class="file-name" id="fileName">No file open</span>
         <span class="language-badge" id="languageBadge" style="display: none;"></span>
         <span class="translated-indicator" id="translatedIndicator">Translated</span>
+        <span class="stale-indicator" id="staleIndicator">Translation may be outdated</span>
       </div>
       <div class="header-right">
         <button id="translateBtn" title="Translate content">
@@ -417,6 +474,9 @@ export class PreviewPanel {
             <path d="M8.5 1.5A1.5 1.5 0 0 0 7 0h-4A1.5 1.5 0 0 0 1.5 1.5v7A1.5 1.5 0 0 0 3 10h4a1.5 1.5 0 0 0 1.5-1.5v-7zM7 1H3a.5.5 0 0 0-.5.5v7a.5.5 0 0 0 .5.5h4a.5.5 0 0 0 .5-.5v-7A.5.5 0 0 0 7 1zm2.5 2.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1-.5-.5zm0 4a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1-.5-.5zm0 4a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1-.5-.5z"/>
           </svg>
           <span class="btn-text">Translate</span>
+        </button>
+        <button id="retranslateBtn" class="secondary" title="Retranslate with latest content">
+          <span class="btn-text">Retranslate</span>
         </button>
       </div>
     </div>
@@ -437,8 +497,11 @@ export class PreviewPanel {
     const fileNameEl = document.getElementById('fileName');
     const languageBadgeEl = document.getElementById('languageBadge');
     const translatedIndicatorEl = document.getElementById('translatedIndicator');
+    const staleIndicatorEl = document.getElementById('staleIndicator');
     const translateBtn = document.getElementById('translateBtn');
+    const retranslateBtn = document.getElementById('retranslateBtn');
     const btnText = translateBtn.querySelector('.btn-text');
+    let hasStaleTranslation = false;
 
     // Send ready message to extension
     window.addEventListener('load', () => {
@@ -451,23 +514,31 @@ export class PreviewPanel {
 
       switch (message.command) {
         case 'updateContent':
-          updateContent(message.content, message.fileName, message.language, message.isTranslated);
+          updateContent(message.content, message.fileName, message.language, message.isTranslated, message.isStale);
           break;
         case 'translateComplete':
-          translateBtn.disabled = false;
-          btnText.textContent = 'Translate';
+          setTranslating(false);
           break;
       }
     });
 
-    translateBtn.addEventListener('click', () => {
-      translateBtn.disabled = true;
-      btnText.textContent = 'Translating...';
+    function requestTranslate() {
+      setTranslating(true);
       vscode.postMessage({ command: 'translate' });
-    });
+    }
 
-    function updateContent(content, fileName, language, isTranslated) {
+    function setTranslating(translating) {
+      translateBtn.disabled = translating;
+      retranslateBtn.disabled = translating;
+      btnText.textContent = translating ? 'Translating...' : 'Translate';
+    }
+
+    translateBtn.addEventListener('click', requestTranslate);
+    retranslateBtn.addEventListener('click', requestTranslate);
+
+    function updateContent(content, fileName, language, isTranslated, isStale) {
       fileNameEl.textContent = fileName || 'No file open';
+      hasStaleTranslation = Boolean(isStale);
 
       if (language) {
         languageBadgeEl.textContent = language;
@@ -482,6 +553,14 @@ export class PreviewPanel {
         translatedIndicatorEl.classList.remove('show');
       }
 
+      if (isTranslated && hasStaleTranslation) {
+        staleIndicatorEl.classList.add('show');
+        retranslateBtn.style.display = 'inline-flex';
+      } else {
+        staleIndicatorEl.classList.remove('show');
+        retranslateBtn.style.display = 'none';
+      }
+
       if (content) {
         // Clear and create new pre element
         contentEl.innerHTML = '';
@@ -492,8 +571,7 @@ export class PreviewPanel {
         contentEl.innerHTML = '<div class="empty-state"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M14 4.5V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5L14 4.5zm-3 0A1.5 1.5 0 0 1 9.5 3V1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4.5h-2z"/></svg><p>This file has no content</p></div>';
       }
 
-      translateBtn.disabled = false;
-      btnText.textContent = 'Translate';
+      setTranslating(false);
     }
   </script>
 </body>
