@@ -54,6 +54,19 @@
         "command": "TransPreview.closePreview",
         "title": "Close Preview",
         "icon": "$(close)"
+      },
+      {
+        "command": "TransPreview.translateSelection",
+        "title": "Translate Selected Term",
+        "icon": "$(symbol-key)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "TransPreview.translateSelection",
+        "key": "alt+t",
+        "mac": "alt+t",
+        "when": "editorTextFocus && editorHasSelection"
       }
     ],
     "menus": {

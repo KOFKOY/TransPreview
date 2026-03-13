@@ -8,7 +8,7 @@ export interface ITranslationProvider {
    * @param targetLanguage Target language code (e.g., 'zh-CN', 'en')
    * @returns Translated text
    */
-  translate(content: string, targetLanguage?: string): Promise<string>;
+  translate(content: string, targetLanguage?: string, options?: TranslationOptions): Promise<string>;
 
   /**
    * Check if the provider is properly configured
@@ -29,6 +29,11 @@ export interface TranslationConfig {
   model?: string;
 }
 
+export interface TranslationOptions {
+  systemPrompt?: string;
+  temperature?: number;
+}
+
 function normalizeBaseUrl(url: string): string {
   return url.replace(/\/+$/, '');
 }
@@ -36,6 +41,18 @@ function normalizeBaseUrl(url: string): string {
 function resolveBaseUrl(config: TranslationConfig, fallback: string): string {
   const configuredBaseUrl = (config.baseUrl ?? config.baseURL ?? '').trim();
   return configuredBaseUrl ? normalizeBaseUrl(configuredBaseUrl) : fallback;
+}
+
+function getDefaultSystemPrompt(targetLanguage: string): string {
+  return `You are a professional translator. Translate the given content to ${targetLanguage}. Only return the translated text without any explanations or additional content.`;
+}
+
+function resolveSystemPrompt(targetLanguage: string, options?: TranslationOptions): string {
+  return options?.systemPrompt?.trim() || getDefaultSystemPrompt(targetLanguage);
+}
+
+function resolveTemperature(options?: TranslationOptions): number {
+  return typeof options?.temperature === 'number' ? options.temperature : 0.3;
 }
 
 /**
@@ -64,7 +81,7 @@ export class DeepSeekProvider implements ITranslationProvider {
     return !!this.config.apiKey;
   }
 
-  async translate(content: string, targetLanguage = 'zh-CN'): Promise<string> {
+  async translate(content: string, targetLanguage = 'zh-CN', options?: TranslationOptions): Promise<string> {
     if (!this.isConfigured()) {
       throw new Error('DeepSeek API key is not configured');
     }
@@ -83,14 +100,14 @@ export class DeepSeekProvider implements ITranslationProvider {
         messages: [
           {
             role: 'system',
-            content: `You are a professional translator. Translate the given content to ${targetLanguage}. Only return the translated text without any explanations or additional content.`
+            content: resolveSystemPrompt(targetLanguage, options)
           },
           {
             role: 'user',
             content: content
           }
         ],
-        temperature: 0.3
+        temperature: resolveTemperature(options)
       })
     });
 
@@ -119,7 +136,7 @@ export class ZhipuProvider implements ITranslationProvider {
     return !!this.config.apiKey;
   }
 
-  async translate(content: string, targetLanguage = 'zh-CN'): Promise<string> {
+  async translate(content: string, targetLanguage = 'zh-CN', options?: TranslationOptions): Promise<string> {
     if (!this.isConfigured()) {
       throw new Error('Zhipu API key is not configured');
     }
@@ -138,14 +155,14 @@ export class ZhipuProvider implements ITranslationProvider {
         messages: [
           {
             role: 'system',
-            content: `You are a professional translator. Translate the given content to ${targetLanguage}. Only return the translated text without any explanations or additional content.`
+            content: resolveSystemPrompt(targetLanguage, options)
           },
           {
             role: 'user',
             content: content
           }
         ],
-        temperature: 0.3
+        temperature: resolveTemperature(options)
       })
     });
 
@@ -174,7 +191,7 @@ export class OpenAIProvider implements ITranslationProvider {
     return !!this.config.apiKey;
   }
 
-  async translate(content: string, targetLanguage = 'zh-CN'): Promise<string> {
+  async translate(content: string, targetLanguage = 'zh-CN', options?: TranslationOptions): Promise<string> {
     if (!this.isConfigured()) {
       throw new Error('OpenAI API key is not configured');
     }
@@ -193,14 +210,14 @@ export class OpenAIProvider implements ITranslationProvider {
         messages: [
           {
             role: 'system',
-            content: `You are a professional translator. Translate the given content to ${targetLanguage}. Only return the translated text without any explanations or additional content.`
+            content: resolveSystemPrompt(targetLanguage, options)
           },
           {
             role: 'user',
             content: content
           }
         ],
-        temperature: 0.3
+        temperature: resolveTemperature(options)
       })
     });
 
@@ -229,7 +246,7 @@ export class QwenProvider implements ITranslationProvider {
     return !!this.config.apiKey;
   }
 
-  async translate(content: string, targetLanguage = 'zh-CN'): Promise<string> {
+  async translate(content: string, targetLanguage = 'zh-CN', options?: TranslationOptions): Promise<string> {
     if (!this.isConfigured()) {
       throw new Error('Qwen API key is not configured');
     }
@@ -248,14 +265,14 @@ export class QwenProvider implements ITranslationProvider {
         messages: [
           {
             role: 'system',
-            content: `You are a professional translator. Translate the given content to ${targetLanguage}. Only return the translated text without any explanations or additional content.`
+            content: resolveSystemPrompt(targetLanguage, options)
           },
           {
             role: 'user',
             content: content
           }
         ],
-        temperature: 0.3
+        temperature: resolveTemperature(options)
       })
     });
 
