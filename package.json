@@ -95,6 +95,16 @@
           "default": "",
           "description": "API key for translation service"
         },
+        "TransPreview.baseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Custom base URL for OpenAI-compatible API (optional)"
+        },
+        "TransPreview.model": {
+          "type": "string",
+          "default": "",
+          "description": "Custom model name (optional)"
+        },
         "TransPreview.autoTranslate": {
           "type": "boolean",
           "default": false,

@@ -21,8 +21,21 @@ export interface ITranslationProvider {
  */
 export interface TranslationConfig {
   apiKey: string;
+  baseUrl?: string;
+  /**
+   * @deprecated Please use baseUrl instead.
+   */
   baseURL?: string;
   model?: string;
+}
+
+function normalizeBaseUrl(url: string): string {
+  return url.replace(/\/+$/, '');
+}
+
+function resolveBaseUrl(config: TranslationConfig, fallback: string): string {
+  const configuredBaseUrl = (config.baseUrl ?? config.baseURL ?? '').trim();
+  return configuredBaseUrl ? normalizeBaseUrl(configuredBaseUrl) : fallback;
 }
 
 /**
@@ -56,7 +69,7 @@ export class DeepSeekProvider implements ITranslationProvider {
       throw new Error('DeepSeek API key is not configured');
     }
 
-    const baseURL = this.config.baseURL || 'https://api.deepseek.com/v1';
+    const baseURL = resolveBaseUrl(this.config, 'https://api.deepseek.com/v1');
     const model = this.config.model || 'deepseek-chat';
 
     const response = await fetch(`${baseURL}/chat/completions`, {
@@ -111,7 +124,7 @@ export class ZhipuProvider implements ITranslationProvider {
       throw new Error('Zhipu API key is not configured');
     }
 
-    const baseURL = this.config.baseURL || 'https://open.bigmodel.cn/api/paas/v4';
+    const baseURL = resolveBaseUrl(this.config, 'https://open.bigmodel.cn/api/paas/v4');
     const model = this.config.model || 'glm-4-flash';
 
     const response = await fetch(`${baseURL}/chat/completions`, {
@@ -166,7 +179,7 @@ export class OpenAIProvider implements ITranslationProvider {
       throw new Error('OpenAI API key is not configured');
     }
 
-    const baseURL = this.config.baseURL || 'https://api.openai.com/v1';
+    const baseURL = resolveBaseUrl(this.config, 'https://api.openai.com/v1');
     const model = this.config.model || 'gpt-4o-mini';
 
     const response = await fetch(`${baseURL}/chat/completions`, {
@@ -221,7 +234,7 @@ export class QwenProvider implements ITranslationProvider {
       throw new Error('Qwen API key is not configured');
     }
 
-    const baseURL = this.config.baseURL || 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+    const baseURL = resolveBaseUrl(this.config, 'https://dashscope.aliyuncs.com/compatible-mode/v1');
     const model = this.config.model || 'qwen-turbo';
 
     const response = await fetch(`${baseURL}/chat/completions`, {

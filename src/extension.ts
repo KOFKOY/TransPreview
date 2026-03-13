@@ -5,6 +5,7 @@ let previewPanel: PreviewPanel | undefined = undefined;
 
 export function activate(context: vscode.ExtensionContext) {
   console.log('TransPreview extension is now active!');
+  vscode.commands.executeCommand('setContext', 'TransPreview.previewVisible', false);
 
   // Register open preview command
   context.subscriptions.push(
@@ -57,6 +58,7 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate() {
+  vscode.commands.executeCommand('setContext', 'TransPreview.previewVisible', false);
   previewPanel?.dispose();
   console.log('TransPreview extension is now deactivated!');
 }

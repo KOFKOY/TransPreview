@@ -1,5 +1,8 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { createTranslationProvider, TranslationConfig } from './TranslationProvider';
+
+const CONFIG_NAMESPACE = 'TransPreview';
 
 export class PreviewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'PTvo.previewView';
@@ -13,7 +16,7 @@ export class PreviewProvider implements vscode.WebviewViewProvider {
 
   public resolveWebviewView(
     webviewView: vscode.WebviewView,
-    context: vscode.WebviewViewResolveContext,
+    _context: vscode.WebviewViewResolveContext,
     _token: vscode.CancellationToken
   ) {
     this._view = webviewView;
@@ -37,6 +40,9 @@ export class PreviewProvider implements vscode.WebviewViewProvider {
             if (this._currentDocument) {
               this._sendContentToWebview(this._currentDocument);
             }
+            if (this._isAutoTranslateEnabled()) {
+              void this.translate();
+            }
             break;
         }
       },
@@ -58,12 +64,14 @@ export class PreviewProvider implements vscode.WebviewViewProvider {
   }
 
   public async translate() {
-    const config = vscode.workspace.getConfiguration('PTvo');
+    const config = vscode.workspace.getConfiguration(CONFIG_NAMESPACE);
     const translator = config.get<string>('translator', 'deepseek');
-    const apiKey = config.get<string>('apiKey', '');
+    const apiKey = config.get<string>('apiKey', '').trim();
+    const baseUrl = config.get<string>('baseUrl', '').trim();
+    const model = config.get<string>('model', '').trim();
 
     if (!apiKey) {
-      vscode.window.showErrorMessage('Please set your API key in settings (PTvo.apiKey)');
+      vscode.window.showErrorMessage(`Please set your API key in settings (${CONFIG_NAMESPACE}.apiKey)`);
       return;
     }
 
@@ -77,12 +85,14 @@ export class PreviewProvider implements vscode.WebviewViewProvider {
           title: 'Translating...',
           cancellable: false
         },
-        async (progress) => {
+        async () => {
           try {
             const translatedText = await this._callTranslationAPI(
               translator,
               apiKey,
-              content
+              content,
+              baseUrl,
+              model
             );
 
             this._view?.webview.postMessage({
@@ -103,12 +113,14 @@ export class PreviewProvider implements vscode.WebviewViewProvider {
   private async _callTranslationAPI(
     translator: string,
     apiKey: string,
-    content: string
+    content: string,
+    baseUrl?: string,
+    model?: string
   ): Promise<string> {
     const config: TranslationConfig = {
       apiKey: apiKey,
-      baseURL: translator === 'zhipu' ? 'https://open.bigmodel.cn/api/paas/v4' : undefined,
-      model: translator === 'zhipu' ? 'glm-4-flash' : undefined
+      baseUrl: baseUrl || undefined,
+      model: model || undefined
     };
 
     const provider = createTranslationProvider(translator, config);
@@ -123,15 +135,16 @@ export class PreviewProvider implements vscode.WebviewViewProvider {
   private _detectTargetLanguage(languageId: string): string {
     // If the file is already in a Chinese-like context, translate to English
     // Otherwise translate to Chinese
-    const chineseLikePatterns = ['zh', 'chinese', 'csharp'];
-    const isChineseLike = chineseLikePatterns.some(p => languageId.toLowerCase().includes(p));
+    const normalized = languageId.toLowerCase();
+    const chineseLikePatterns = ['zh', 'zh-cn', 'zh-hans', 'zh-hant', 'chinese'];
+    const isChineseLike = chineseLikePatterns.some((pattern) => normalized.includes(pattern));
 
     return isChineseLike ? 'en' : 'zh-CN';
   }
 
   private _sendContentToWebview(document: vscode.TextDocument) {
     const content = document.getText();
-    const fileName = document.fileName.split('/').pop() || 'Untitled';
+    const fileName = path.basename(document.fileName) || 'Untitled';
 
     this._view?.webview.postMessage({
       command: 'updateContent',
@@ -142,13 +155,17 @@ export class PreviewProvider implements vscode.WebviewViewProvider {
     });
   }
 
-  private _getHtmlForWebview(webview: vscode.Webview): string {
+  private _isAutoTranslateEnabled(): boolean {
+    return vscode.workspace.getConfiguration(CONFIG_NAMESPACE).get<boolean>('autoTranslate', false);
+  }
+
+  private _getHtmlForWebview(_webview: vscode.Webview): string {
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PTvo Preview</title>
+  <title>TransPreview Preview</title>
   <style>
     * {
       box-sizing: border-box;

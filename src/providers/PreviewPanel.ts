@@ -1,5 +1,9 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { createTranslationProvider, TranslationConfig } from './TranslationProvider';
+
+const CONFIG_NAMESPACE = 'TransPreview';
+const PREVIEW_VISIBLE_CONTEXT_KEY = 'TransPreview.previewVisible';
 
 export class PreviewPanel {
   public static readonly viewType = 'PTvo.previewPanel';
@@ -37,6 +41,9 @@ export class PreviewPanel {
           case 'ready':
             // Send current content when webview is ready
             this._sendCurrentContent();
+            if (this._isAutoTranslateEnabled()) {
+              void this.translate();
+            }
             break;
         }
       },
@@ -113,58 +120,75 @@ export class PreviewPanel {
   }
 
   public async translate() {
-    const config = vscode.workspace.getConfiguration('PTvo');
-    const translator = config.get<string>('translator', 'deepseek');
-    const apiKey = config.get<string>('apiKey', '');
-
-    if (!apiKey) {
-      vscode.window.showErrorMessage('Please set your API key in settings (PTvo.apiKey)');
+    if (!this._currentDocument) {
+      this._panel.webview.postMessage({
+        command: 'translateComplete'
+      });
       return;
     }
 
-    if (this._currentDocument) {
-      const content = this._currentDocument.getText();
+    const config = vscode.workspace.getConfiguration(CONFIG_NAMESPACE);
+    const translator = config.get<string>('translator', 'deepseek');
+    const apiKey = config.get<string>('apiKey', '').trim();
+    const baseUrl = config.get<string>('baseUrl', '').trim();
+    const model = config.get<string>('model', '').trim();
 
-      // Show progress indicator
-      await vscode.window.withProgress(
-        {
-          location: vscode.ProgressLocation.Notification,
-          title: 'Translating...',
-          cancellable: false
-        },
-        async () => {
-          try {
-            const translatedText = await this._callTranslationAPI(
-              translator,
-              apiKey,
-              content
-            );
-
-            this._panel.webview.postMessage({
-              command: 'updateContent',
-              content: translatedText,
-              isTranslated: true
-            });
-          } catch (error) {
-            vscode.window.showErrorMessage(
-              `Translation failed: ${error instanceof Error ? error.message : 'Unknown error'}`
-            );
-            this._panel.webview.postMessage({
-              command: 'translateComplete'
-            });
-          }
-        }
-      );
+    if (!apiKey) {
+      vscode.window.showErrorMessage(`Please set your API key in settings (${CONFIG_NAMESPACE}.apiKey)`);
+      this._panel.webview.postMessage({
+        command: 'translateComplete'
+      });
+      return;
     }
+
+    const content = this._currentDocument.getText();
+
+    // Show progress indicator
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: 'Translating...',
+        cancellable: false
+      },
+      async () => {
+        try {
+          const translatedText = await this._callTranslationAPI(
+            translator,
+            apiKey,
+            content,
+            baseUrl,
+            model
+          );
+
+          this._panel.webview.postMessage({
+            command: 'updateContent',
+            content: translatedText,
+            isTranslated: true
+          });
+        } catch (error) {
+          vscode.window.showErrorMessage(
+            `Translation failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+          );
+        } finally {
+          this._panel.webview.postMessage({
+            command: 'translateComplete'
+          });
+        }
+      }
+    );
   }
 
   private async _callTranslationAPI(
     translator: string,
     apiKey: string,
-    content: string
+    content: string,
+    baseUrl?: string,
+    model?: string
   ): Promise<string> {
     const config: TranslationConfig = {
-      apiKey: apiKey
+      apiKey: apiKey,
+      baseUrl: baseUrl || undefined,
+      model: model || undefined
     };
 
     const provider = createTranslationProvider(translator, config);
@@ -179,8 +203,9 @@ export class PreviewPanel {
   private _detectTargetLanguage(languageId: string): string {
     // If the file is already in a Chinese-like context, translate to English
     // Otherwise translate to Chinese
-    const chineseLikePatterns = ['zh', 'chinese', 'csharp'];
-    const isChineseLike = chineseLikePatterns.some(p => languageId.toLowerCase().includes(p));
+    const normalized = languageId.toLowerCase();
+    const chineseLikePatterns = ['zh', 'zh-cn', 'zh-hans', 'zh-hant', 'chinese'];
+    const isChineseLike = chineseLikePatterns.some((pattern) => normalized.includes(pattern));
 
     return isChineseLike ? 'en' : 'zh-CN';
   }
@@ -191,9 +216,13 @@ export class PreviewPanel {
     }
   }
 
+  private _isAutoTranslateEnabled(): boolean {
+    return vscode.workspace.getConfiguration(CONFIG_NAMESPACE).get<boolean>('autoTranslate', false);
+  }
+
   private _sendContentToWebview(document: vscode.TextDocument) {
     const content = document.getText();
-    const fileName = document.fileName.split('/').pop() || 'Untitled';
+    const fileName = path.basename(document.fileName) || 'Untitled';
 
     this._panel.webview.postMessage({
       command: 'updateContent',
@@ -205,10 +234,10 @@ export class PreviewPanel {
   }
 
   private _updateContextKey(visible: boolean) {
-    vscode.commands.executeCommand('setContext', 'PTvo.previewVisible', visible);
+    vscode.commands.executeCommand('setContext', PREVIEW_VISIBLE_CONTEXT_KEY, visible);
   }
 
-  private _getHtmlForWebview(webview: vscode.Webview): string {
+  private _getHtmlForWebview(_webview: vscode.Webview): string {
     const fontFamily = vscode.workspace.getConfiguration('editor').get<string>('fontFamily', 'Consolas, Monaco, "Courier New", monospace');
     const fontSize = vscode.workspace.getConfiguration('editor').get<number>('fontSize', 14);
     const lineHeight = vscode.workspace.getConfiguration('editor').get<number>('lineHeight', 0);
@@ -219,7 +248,7 @@ export class PreviewPanel {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
-  <title>PTvo Preview</title>
+  <title>TransPreview Preview</title>
   <style>
     /* Use VS Code's built-in CSS variables with fallbacks */
     :root {
