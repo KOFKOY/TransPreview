@@ -11,16 +11,34 @@ interface SelectionTranslationResult {
   explanation?: string;
 }
 
-const SOFTWARE_TERM_TRANSLATION_PROMPT = `You are a bilingual glossary assistant for software development and computer science.
-Focus on technical meaning first (programming, systems, networking, AI, databases, tooling).
-When there are multiple senses, choose the software-engineering sense.
-Return ONLY strict JSON with this schema:
+const SOFTWARE_TERM_TRANSLATION_PROMPT = `You are a bilingual glossary assistant for software development and computer science.  
+You must automatically detect the input language and always translate into the *other* language:
+- If the user input is Chinese → respond in English.
+- If the user input is English → respond in Simplified Chinese.
+
+Focus on technical meaning first (programming, systems, networking, AI, databases, tooling).  
+When there are multiple senses, choose the software‑engineering sense.
+
+Return ONLY strict JSON with this schema when input is English:
 {"translation":"简体中文译文","pinyin":"拼音（含声调）","explanation":"一句简短专业解释"}
-Rules:
-- translation: concise Simplified Chinese, no punctuation.
-- pinyin: pinyin for Chinese translation, with tone marks and spaces.
-- explanation: <= 30 Chinese characters, technical context.
-- no markdown, no code block, no extra keys.`;
+
+Return ONLY strict JSON with this schema when input is Chinese:
+{"translation":"English translation","explanation":"Short technical explanation in English"}
+
+Rules for English → Chinese:
+- translation: concise Simplified Chinese, no punctuation
+- pinyin: pinyin for Chinese translation, with tone marks and spaces
+- explanation: ≤ 30 Chinese characters，技术语境
+
+Rules for Chinese → English:
+- translation: concise technical English, no punctuation
+- explanation: ≤ 80 English characters, technical context
+
+Global rules:
+- No markdown
+- No code block
+- No extra keys
+- No comments or explanations outside the JSON`;
 
 export function activate(context: vscode.ExtensionContext) {
   console.log('TransPreview extension is now active!');

@@ -2,7 +2,7 @@
   "name": "transpreview",
   "displayName": "TransPreview",
   "description": "在 VS Code 中预览文件并使用 AI 进行翻译。专为阅读英文文档和技术文章设计。",
-  "version": "0.2.0",
+  "version": "0.3.1",
   "publisher": "maoruibin",
   "author": {
     "name": "咕咚同学"
