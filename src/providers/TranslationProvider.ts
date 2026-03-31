@@ -67,6 +67,43 @@ interface ChatCompletionResponse {
 }
 
 /**
+ * API Response type for OpenAI Responses endpoints
+ */
+interface ResponsesApiResponse {
+  output_text?: string;
+  output?: Array<{
+    content?: Array<{
+      type?: string;
+      text?: string;
+    }>;
+  }>;
+}
+
+const RESPONSES_MODELS = [
+  'gpt-5.1-codex-max'
+];
+
+function isResponsesModel(model: string): boolean {
+  return RESPONSES_MODELS.some(prefix => model === prefix || model.startsWith(`${prefix}-`));
+}
+
+function extractResponsesText(data: ResponsesApiResponse): string {
+  if (typeof data.output_text === 'string' && data.output_text.trim()) {
+    return data.output_text.trim();
+  }
+
+  for (const item of data.output ?? []) {
+    for (const content of item.content ?? []) {
+      if (typeof content.text === 'string' && content.text.trim()) {
+        return content.text.trim();
+      }
+    }
+  }
+
+  return '';
+}
+
+/**
  * DeepSeek Translation Provider
  * Uses DeepSeek API for translation
  */
@@ -199,31 +236,53 @@ export class OpenAIProvider implements ITranslationProvider {
     const baseURL = resolveBaseUrl(this.config, 'https://api.openai.com/v1');
     const model = this.config.model || 'gpt-4o-mini';
 
-    const response = await fetch(`${baseURL}/chat/completions`, {
+    const useResponsesApi = isResponsesModel(model);
+    const endpoint = useResponsesApi ? `${baseURL}/responses` : `${baseURL}/chat/completions`;
+    const payload = useResponsesApi
+      ? {
+          model,
+          instructions: resolveSystemPrompt(targetLanguage, options),
+          input: [
+            {
+              role: 'user',
+              content: [
+                { type: 'input_text', text: content }
+              ]
+            }
+          ]
+        }
+      : {
+          model,
+          messages: [
+            {
+              role: 'system',
+              content: resolveSystemPrompt(targetLanguage, options)
+            },
+            {
+              role: 'user',
+              content: content
+            }
+          ],
+          temperature: resolveTemperature(options)
+        };
+
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${this.config.apiKey}`
       },
-      body: JSON.stringify({
-        model: model,
-        messages: [
-          {
-            role: 'system',
-            content: resolveSystemPrompt(targetLanguage, options)
-          },
-          {
-            role: 'user',
-            content: content
-          }
-        ],
-        temperature: resolveTemperature(options)
-      })
+      body: JSON.stringify(payload)
     });
 
     if (!response.ok) {
       const error = await response.text();
       throw new Error(`OpenAI API error: ${response.status} - ${error}`);
+    }
+
+    if (useResponsesApi) {
+      const data = await response.json() as ResponsesApiResponse;
+      return extractResponsesText(data);
     }
 
     const data = await response.json() as ChatCompletionResponse;
